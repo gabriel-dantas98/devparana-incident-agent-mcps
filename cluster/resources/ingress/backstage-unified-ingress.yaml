@@ -1,0 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backstage-unified
+  namespace: backstage
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    # Frontend - Interface do usuário
+    - host: backstage.localdev.me
+      http:
+        paths:
+          - path: /(?!api/).*
+            pathType: Prefix  
+            backend:
+              service:
+                name: backstage
+                port:
+                  name: frontend
+    # Backend API - APIs em /api/*
+    - host: backstage-api.localdev.me  
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backstage
+                port:
+                  name: frontend  # Mesmo serviço, mesma porta
+          # Proxy reverso para /api
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backstage
+                port:
+                  name: frontend

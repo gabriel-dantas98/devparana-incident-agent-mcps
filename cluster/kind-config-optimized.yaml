@@ -1,0 +1,31 @@
+# kind-m3pro-minimal.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: agent-cluster
+
+# Mirror do registry local para TODOS os nós
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+      [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5001"]
+        endpoint = ["http://kind-registry:5000","http://localhost:5001"]
+      [plugins."io.containerd.grpc.v1.cri".registry.mirrors."kind-registry:5000"]
+        endpoint = ["http://kind-registry:5000"]
+
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.30.0
+    # Mapeia NodePort -> host (amigável no macOS)
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 8080
+        protocol: TCP
+      - containerPort: 30443
+        hostPort: 8443
+        protocol: TCP
+
+  # Adicione quantos workers quiser — segue com 2 de exemplo:
+  - role: worker
+    image: kindest/node:v1.30.0
+  - role: worker
+    image: kindest/node:v1.30.0

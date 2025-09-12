@@ -1,0 +1,47 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sample-apps
+  namespace: argocd
+  labels:
+    app: sample-apps
+    environment: development
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: REPLACE_WITH_REPO_URL
+    targetRevision: HEAD
+    path: cluster/resources/sample-apps
+    directory:
+      recurse: true
+  
+  # For local development, we'll use a different approach
+  # You can point this to your own git repo with the nginx manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apps
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  
+  revisionHistoryLimit: 3
+  
+  info:
+    - name: "Description"
+      value: "Sample nginx application for testing ArgoCD integration"
+    - name: "Owner"
+      value: "Platform Team"

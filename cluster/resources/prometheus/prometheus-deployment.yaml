@@ -1,0 +1,367 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.47.2
+          args:
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/prometheus'
+            - '--web.console.libraries=/etc/prometheus/console_libraries'
+            - '--web.console.templates=/etc/prometheus/consoles'
+          ports:
+            - containerPort: 9090
+              name: http
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: storage
+              mountPath: /prometheus
+            - name: rules
+              mountPath: /etc/prometheus/rules
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: storage
+          emptyDir: {}
+        - name: rules
+          configMap:
+            name: prometheus-rules
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: http
+  selector:
+    app: prometheus
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: monitoring
+  labels:
+    app: node-exporter
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      hostPID: true
+      hostNetwork: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: node-exporter
+          image: prom/node-exporter:v1.7.0
+          args:
+            - '--path.rootfs=/host'
+          ports:
+            - name: metrics
+              containerPort: 9100
+          volumeMounts:
+            - name: rootfs
+              mountPath: /host
+              readOnly: true
+      volumes:
+        - name: rootfs
+          hostPath:
+            path: /
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: monitoring
+  labels:
+    app: node-exporter
+spec:
+  clusterIP: None
+  selector:
+    app: node-exporter
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: metrics
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+  labels:
+    app: alertmanager
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 1m
+    route:
+      receiver: 'discord'
+      group_by: ['alertname', 'severity']
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 4h
+      routes:
+        # Ignore WatchDog alerts - don't send to Discord
+        - matchers:
+            - alertname = Watchdog
+          receiver: 'null'
+        - matchers:
+            - severity = critical
+          receiver: 'discord-critical'
+        - matchers:
+            - severity = warning
+          receiver: 'discord-warning'
+    receivers:
+      # Null receiver - ignores alerts (no webhook configs)
+      - name: 'null'
+
+      - name: 'discord'
+        webhook_configs:
+          - url: 'http://discord-webhook-proxy.monitoring.svc.cluster.local:8080/webhook'
+            send_resolved: true
+
+      - name: 'discord-critical'
+        webhook_configs:
+          - url: 'http://discord-webhook-proxy.monitoring.svc.cluster.local:8080/webhook'
+            send_resolved: true
+
+      - name: 'discord-warning'  
+        webhook_configs:
+          - url: 'http://discord-webhook-proxy.monitoring.svc.cluster.local:8080/webhook'
+            send_resolved: true
+    templates:
+      - /etc/alertmanager/templates/*.tmpl
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: monitoring
+  labels:
+    app: prometheus
+data:
+  general-rules.yml: |
+    groups:
+      - name: general
+        rules:
+          - alert: Watchdog
+            expr: vector(1)
+            labels:
+              severity: none
+            annotations:
+              summary: "Watchdog"
+              description: "Alerting pipeline health indicator."
+          - alert: HighNodeCPU
+            expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High CPU on node {{ $labels.instance }}"
+              description: "CPU usage > 80% for 2m on {{ $labels.instance }}"
+          - alert: NodeDown
+            expr: up{job="node-exporter"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Node down: {{ $labels.instance }}"
+              description: "Node exporter target is down for 1m on {{ $labels.instance }}"
+      - name: kubernetes-pods
+        rules:
+          - alert: PodCrashLooping
+            expr: rate(kube_pod_container_status_restarts_total[15m]) * 60 * 15 > 0
+            for: 0m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping"
+              description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }}) is restarting {{ $value }} times per 15 minutes."
+          - alert: PodNotReady
+            expr: kube_pod_status_ready{condition="false"} == 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been not ready for more than 15 minutes"
+              description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in a non-ready state for longer than 15 minutes."
+          - alert: PodMemoryUsageHigh
+            expr: (sum(container_memory_working_set_bytes{name!=""}) BY (instance, name, namespace) / sum(container_spec_memory_limit_bytes > 0) BY (instance, name, namespace) * 100) > 90
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Container Memory usage (instance {{ $labels.instance }})"
+              description: "Container Memory usage is above 90%\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+          - alert: PodMemoryUsageCritical
+            expr: (sum(container_memory_working_set_bytes{name!=""}) BY (instance, name, namespace) / sum(container_spec_memory_limit_bytes > 0) BY (instance, name, namespace) * 100) > 95
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Container Memory usage is critically high (instance {{ $labels.instance }})"
+              description: "Container Memory usage is above 95%\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+          - alert: PodOOMKilled
+            expr: increase(kube_pod_container_status_restarts_total{reason="OOMKilled"}[5m]) > 0
+            for: 0m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} was OOM killed"
+              description: "Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} has been OOMKilled {{ $value }} times in the last 5 minutes."
+          - alert: PodFrequentlyRestarting
+            expr: increase(kube_pod_container_status_restarts_total[1h]) > 5
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is restarting frequently"
+              description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has restarted {{ $value }} times in the last hour."
+          - alert: PodStuckInPending
+            expr: kube_pod_status_phase{phase="Pending"} == 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} stuck in Pending state"
+              description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in Pending state for more than 15 minutes."
+          - alert: PodStuckInTerminating
+            expr: kube_pod_status_phase{phase="Terminating"} == 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} stuck in Terminating state"
+              description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in Terminating state for more than 15 minutes."
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-templates
+  namespace: monitoring
+  labels:
+    app: alertmanager
+data:
+  default.tmpl: |-
+    {{ define "__alertmanager" }}AlertManager{{ end }}
+    {{ define "__alertmanagerURL" }}{{ .ExternalURL }}/#/alerts?receiver={{ .Receiver | urlquery }}{{ end }}
+
+    {{ define "discord.title" }}
+    {{- if eq .Status "firing" }}🔴 ALERT{{ else }}✅ RESOLVED{{ end }} - {{ .GroupLabels.alertname }}
+    {{- end }}
+
+    {{ define "discord.content" }}
+    {{- range .Alerts }}
+    **{{ .Annotations.summary }}**
+    {{ .Annotations.description }}
+    **Instance:** {{ .Labels.instance }}
+    **Severity:** {{ .Labels.severity }}
+    **Status:** {{ .Status | title }}
+    **Time:** {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+    ---
+    {{ end }}
+    {{- end }}
+
+    {{/* Default templates for webhook messages */}}
+    {{ define "webhook.default.message" }}
+    {{ range .Alerts }}{{ .Annotations.summary }} - {{ .Labels.instance }}{{ end }}
+    {{ end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app: alertmanager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.26.0
+          args:
+            - '--config.file=/etc/alertmanager/alertmanager.yml'
+            - '--storage.path=/alertmanager'
+          ports:
+            - containerPort: 9093
+              name: http
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+            - name: storage
+              mountPath: /alertmanager
+            - name: templates
+              mountPath: /etc/alertmanager/templates
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+        - name: storage
+          emptyDir: {}
+        - name: templates
+          configMap:
+            name: alertmanager-templates
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: monitoring
+  labels:
+    app: alertmanager
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9093
+      targetPort: 9093
+      protocol: TCP
+      name: http
+  selector:
+    app: alertmanager

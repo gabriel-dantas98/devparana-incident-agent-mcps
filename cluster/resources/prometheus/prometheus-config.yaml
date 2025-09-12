@@ -1,0 +1,132 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    rule_files:
+      - /etc/prometheus/rules/*.yml
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ['alertmanager.monitoring.svc:9093']
+
+    scrape_configs:
+      # Scrape config for Prometheus itself
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+      
+      # Scrape cAdvisor metrics from kubelets (per-container CPU/memory, etc.)
+      - job_name: 'kubernetes-cadvisor'
+        scheme: https
+        metrics_path: /metrics/cadvisor
+        kubernetes_sd_configs:
+          - role: node
+        tls_config:
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+      
+      # Scrape node-exporter on each node (host metrics)
+      - job_name: 'node-exporter'
+        kubernetes_sd_configs:
+          - role: endpoints
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            action: keep
+            regex: monitoring
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: node-exporter
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: metrics
+      
+      # Scrape Kubernetes pods with annotations (app exporters like nginx exporter)
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+      
+      # Scrape Kubernetes pods that expose a port named 'metrics' (no annotations required)
+      - job_name: 'kubernetes-pods-metrics-port'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            action: keep
+            regex: ^metrics(|-.+)$
+          - source_labels: [__meta_kubernetes_pod_ip, __meta_kubernetes_pod_container_port_number]
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+      
+      # kube-state-metrics (cluster state and resource metadata)
+      - job_name: 'kube-state-metrics'
+        static_configs:
+          - targets: ['kube-state-metrics.monitoring.svc:8080']
+        metrics_path: /metrics
+      
+      # ArgoCD metrics
+      - job_name: 'argocd-metrics'
+        static_configs:
+          - targets: ['argocd-metrics.argocd.svc:8082']
+        metrics_path: /metrics
+      
+      # ArgoCD Server metrics
+      - job_name: 'argocd-server-metrics'
+        static_configs:
+          - targets: ['argocd-server-metrics.argocd.svc:8083']
+        metrics_path: /metrics
+      
+      # ArgoCD Repo Server metrics  
+      - job_name: 'argocd-repo-server-metrics'
+        static_configs:
+          - targets: ['argocd-repo-server.argocd.svc:8084']
+        metrics_path: /metrics
+      
+      # ArgoCD Application Controller metrics
+      - job_name: 'argocd-application-controller-metrics'
+        static_configs:
+          - targets: ['argocd-applicationset-controller.argocd.svc:8080']
+        metrics_path: /metrics
+
+      # ArgoCD Notifications Controller metrics
+      - job_name: 'argocd-notifications-controller-metrics'
+        static_configs:
+          - targets: ['argocd-notifications-controller-metrics.argocd.svc:9001']
+        metrics_path: /metrics
