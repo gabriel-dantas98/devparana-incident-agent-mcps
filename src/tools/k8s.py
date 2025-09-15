@@ -63,70 +63,50 @@ async def list_pods(namespace: str = "default") -> Dict[str, Any]:
         logger.error(f"Error listing pods: {e}")
         return {"error": str(e), "pods": []}
 
-@tool(description="Gets detailed information about a specific pod including containers, volumes, events, and conditions. Critical for debugging pod failures and resource issues.")
+@tool(description="Gets basic information about a pod including status, containers and restart count. Returns empty if pod not found.")
 async def describe_pod(pod_name: str, namespace: str = "default") -> Dict[str, Any]:
-    """Get detailed pod information."""
+    """Get basic pod information."""
     logger.info(f"Describing pod {pod_name} in namespace {namespace}")
     try:
         pod = v1.read_namespaced_pod(pod_name, namespace)
         
-        # Get pod events
-        events = v1.list_namespaced_event(
-            namespace,
-            field_selector=f"involvedObject.name={pod_name}"
-        )
-        
+        # Basic pod info only
         pod_details = {
             "name": pod.metadata.name,
             "namespace": pod.metadata.namespace,
-            "status": {
-                "phase": pod.status.phase,
-                "conditions": [
-                    {
-                        "type": c.type,
-                        "status": c.status,
-                        "reason": c.reason,
-                        "message": c.message
-                    } for c in pod.status.conditions or []
-                ],
-                "container_statuses": [
-                    {
-                        "name": c.name,
-                        "ready": c.ready,
-                        "restart_count": c.restart_count,
-                        "state": {
-                            "running": c.state.running is not None,
-                            "terminated": c.state.terminated.to_dict() if c.state.terminated else None,
-                            "waiting": c.state.waiting.to_dict() if c.state.waiting else None
-                        }
-                    } for c in pod.status.container_statuses or []
-                ]
-            },
-            "spec": {
-                "node_name": pod.spec.node_name,
-                "containers": [
-                    {
-                        "name": c.name,
-                        "image": c.image,
-                        "resources": c.resources.to_dict() if c.resources else {}
-                    } for c in pod.spec.containers
-                ]
-            },
-            "events": [
-                {
-                    "type": e.type,
-                    "reason": e.reason,
-                    "message": e.message,
-                    "count": e.count,
-                    "last_timestamp": str(e.last_timestamp)
-                } for e in events.items
-            ]
+            "phase": pod.status.phase,
+            "node_name": pod.spec.node_name,
+            "containers": []
         }
         
+        # Add container info
+        if pod.status.container_statuses:
+            for c in pod.status.container_statuses:
+                container_info = {
+                    "name": c.name,
+                    "ready": c.ready,
+                    "restart_count": c.restart_count,
+                    "image": next((spec.image for spec in pod.spec.containers if spec.name == c.name), "unknown")
+                }
+                
+                # Simple state info
+                if c.state.running:
+                    container_info["state"] = "running"
+                elif c.state.terminated:
+                    container_info["state"] = f"terminated ({c.state.terminated.reason})"
+                elif c.state.waiting:
+                    container_info["state"] = f"waiting ({c.state.waiting.reason})"
+                
+                pod_details["containers"].append(container_info)
+        
         return pod_details
+        
     except ApiException as e:
+        if e.status == 404:
+            logger.warning(f"Pod {pod_name} not found in namespace {namespace}")
+            return {"error": "Pod not found", "found": False}
         logger.error(f"Error describing pod: {e}")
-        return {"error": str(e)}
+        return {"error": f"API error: {e.status} - {e.reason}", "found": False}
 
 @tool(description="Gets the logs from a pod container. Essential for debugging application issues and understanding failure reasons. Supports tail lines and previous container logs.")
 async def get_pod_logs(

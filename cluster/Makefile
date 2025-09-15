@@ -1,4 +1,4 @@
-.PHONY: all setup teardown status validate deploy-sample clean-sample logs help get-urls registry-test
+.PHONY: all setup teardown status validate deploy-sample clean-sample logs help get-urls registry-test update-discord-bot logs-discord-bot
 
 # Variables
 CLUSTER_NAME = agent-cluster
@@ -139,3 +139,12 @@ restart-backstage:
 ## logs-backstage: Show Backstage logs
 logs-backstage:
 	@kubectl logs -n backstage -l app=backstage --tail=50 -f
+
+## update-discord-bot: Update Discord webhook proxy image
+update-discord-bot:
+	@chmod +x scripts/update-discord-bot.sh
+	@./scripts/update-discord-bot.sh
+
+## logs-discord-bot: Show Discord webhook proxy logs
+logs-discord-bot:
+	@kubectl logs -n $(MONITORING_NS) -l app=discord-webhook-proxy --tail=50 -f

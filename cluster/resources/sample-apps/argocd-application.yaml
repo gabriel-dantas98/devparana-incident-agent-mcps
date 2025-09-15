@@ -11,7 +11,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: REPLACE_WITH_REPO_URL
+    repoURL: https://github.com/gabriel-dantas98/devparana-incident-agent-mcps
     targetRevision: HEAD
     path: cluster/resources/sample-apps
     directory:

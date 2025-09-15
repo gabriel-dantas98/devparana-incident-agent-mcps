@@ -192,7 +192,7 @@ data:
               description: "Alerting pipeline health indicator."
           - alert: HighNodeCPU
             expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
-            for: 2m
+            for: 1m
             labels:
               severity: warning
             annotations:
@@ -210,7 +210,7 @@ data:
         rules:
           - alert: PodCrashLooping
             expr: rate(kube_pod_container_status_restarts_total[15m]) * 60 * 15 > 0
-            for: 0m
+            for: 20s
             labels:
               severity: critical
             annotations:
@@ -218,7 +218,7 @@ data:
               description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} ({{ $labels.container }}) is restarting {{ $value }} times per 15 minutes."
           - alert: PodNotReady
             expr: kube_pod_status_ready{condition="false"} == 1
-            for: 15m
+            for: 20s
             labels:
               severity: warning
             annotations:
@@ -226,7 +226,7 @@ data:
               description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in a non-ready state for longer than 15 minutes."
           - alert: PodMemoryUsageHigh
             expr: (sum(container_memory_working_set_bytes{name!=""}) BY (instance, name, namespace) / sum(container_spec_memory_limit_bytes > 0) BY (instance, name, namespace) * 100) > 90
-            for: 2m
+            for: 0m
             labels:
               severity: warning
             annotations:

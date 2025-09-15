@@ -75,6 +75,45 @@ kubectl rollout restart deployment/argocd-server -n argocd >/dev/null || true
 echo "🌐 Installing ingress-nginx..."
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
 
+# Wait for ingress-nginx controller to be ready
+echo "⏳ Waiting for ingress-nginx controller to be ready..."
+kubectl wait --namespace ingress-nginx \
+  --for=condition=available \
+  deployment/ingress-nginx-controller \
+  --timeout=90s
+
+# Wait for admission webhook jobs to complete
+echo "⏳ Waiting for admission webhook jobs to complete..."
+kubectl wait --namespace ingress-nginx \
+  --for=condition=complete \
+  --timeout=90s \
+  jobs --all
+
+# Additional wait to ensure webhook is fully ready and test connectivity
+echo "⏳ Waiting for webhook to be fully ready..."
+sleep 30
+
+echo "🔍 Testing webhook connectivity..."
+for i in {1..5}; do
+  if kubectl apply --dry-run=server -f - <<EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: test-webhook
+  namespace: default
+spec:
+  rules: []
+EOF
+  then
+    echo "✅ Webhook is ready!"
+    kubectl delete ingress test-webhook -n default --ignore-not-found=true
+    break
+  else
+    echo "⚠️  Webhook not ready yet, waiting... (attempt $i/5)"
+    sleep 10
+  fi
+done
+
 # Bootstrap ArgoCD Application for sample-apps
 echo "🧩 Bootstrapping ArgoCD Application for sample-apps..."
 REPO_ROOT="$(cd "$CLUSTER_DIR/.." && pwd)"

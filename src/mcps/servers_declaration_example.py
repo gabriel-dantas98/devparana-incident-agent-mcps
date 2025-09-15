@@ -1,3 +1,6 @@
+# This is an example of how to declare MCP clients for the ReAct Agent
+# You can use this to declare MCP clients for the ReAct Agent in src/agent/graph.py
+
 import os
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
@@ -13,7 +16,7 @@ prometheusMCPClient = {
                 "prometheus-mcp-server",
             ],
             "env": {
-                "PROMETHEUS_URL": "https://thanos-query.apps.shared-prd.habitat.zone"
+                "PROMETHEUS_URL": "http://prometheus.localdev.me"
             }
     }
 
@@ -51,3 +54,5 @@ MCP_CLIENTS = MultiServerMCPClient({
     "argocd": argocdMCPClient,
     "software-catalog": backstageMCPClient
 })
+
+MCP_CLIENTS.get_tools()

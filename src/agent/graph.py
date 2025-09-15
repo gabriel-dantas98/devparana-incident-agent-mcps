@@ -1,9 +1,3 @@
-"""LangGraph SRE Agent with Kubernetes and ArgoCD tools integration.
-
-This agent provides intelligent troubleshooting and monitoring capabilities
-for Kubernetes environments with ArgoCD GitOps workflows.
-"""
-
 from __future__ import annotations
 
 import os
@@ -74,17 +68,12 @@ def create_sre_agent():
     """Create and configure the SRE React Agent with all tools."""
 
     model = ChatOpenAI(
-        model="gpt-5-mini-2025-08-07",
+        model="gpt-5-nano-2025-08-07",
         temperature=0.1,  # Low temperature for consistent technical responses
         api_key=os.getenv("OPENAI_API_KEY")
     )
     
     tools = [
-        # ArgoCD tools
-        list_applications,
-        get_application_status,
-        get_application_logs,
-        get_application_events,
         # Kubernetes tools
         list_pods,
         describe_pod,

@@ -17,6 +17,8 @@ dependencies = [
     "requests>=2.31.0",
     "discord-py>=2.6.3",
     "aiohttp>=3.12.15",
+    "langfuse>=3.3.4",
+    "rich>=14.1.0",
 ]
 
 

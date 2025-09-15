@@ -24,7 +24,7 @@ class BackstageConfig:
     url: str
 
 config = BackstageConfig(
-    url=os.environ.get("BACKSTAGE_BASE_URL", "")
+    url=os.environ.get("BACKSTAGE_BASE_URL", "http://localhost:7007")
 )
 
 def backstage_request(endpoint: str, params: Optional[Dict[str, str]] = None) -> Any:

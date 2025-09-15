@@ -15,7 +15,7 @@ metadata:
     environment: development
     managed-by: argocd
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: nginx
@@ -112,7 +112,7 @@ data:
     server {
         listen 80;
         server_name localhost;
-        
+
         location / {
             root   /usr/share/nginx/html;
             index  index.html index.htm;

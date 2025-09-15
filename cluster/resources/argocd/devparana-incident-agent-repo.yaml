@@ -1,0 +1,16 @@
+# ArgoCD Repository Configuration (via Secret)
+# Note: In current ArgoCD versions, repositories are configured via Secrets
+# with the label 'argocd.argoproj.io/secret-type: repository'
+# The old 'kind: Repository' CRD has been deprecated/removed
+apiVersion: v1
+kind: Secret
+metadata:
+  name: devparana-incident-agent-repo
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+type: Opaque
+stringData:
+  type: git
+  url: https://github.com/gabriel-dantas98/devparana-incident-agent-mcps
+  name: devparana-incident-agent-mcps

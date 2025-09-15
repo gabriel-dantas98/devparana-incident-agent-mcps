@@ -5,4 +5,7 @@ metadata:
   namespace: argocd
 data:
   server.insecure: "true"
+  admin.enabled: "false"
+  users.anonymous.enabled: "true"
+  server.disable.auth: "true"
   url: "http://localhost:8080"

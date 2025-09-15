@@ -7,6 +7,7 @@ resources:
   - namespace.yaml
   - https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
   - argocd-server-config.yaml
+  - devparana-incident-agent-repo.yaml
 
 patches:
   - target:

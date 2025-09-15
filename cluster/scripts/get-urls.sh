@@ -65,5 +65,25 @@ else
   echo "  kubectl port-forward -n monitoring svc/prometheus 9090:9090"
 fi
 
+# Get ArgoCD credentials
+print_info "Getting ArgoCD credentials..."
+ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || true)
+if [ -z "${ARGOCD_PASSWORD:-}" ]; then
+  ARGOCD_PASSWORD="(not available - password may have been changed)"
+fi
+
 echo ""
+echo "🔐 ArgoCD Login Credentials:"
+echo "====================================="
+echo "  Username: admin"
+echo "  Password: $ARGOCD_PASSWORD"
+echo ""
+
+# Additional service info
+echo "📊 Other Service Credentials:"
+echo "====================================="
+echo "  Grafana: admin/admin"
+echo "  Prometheus: (no authentication)"
+echo ""
+
 echo "Done."
